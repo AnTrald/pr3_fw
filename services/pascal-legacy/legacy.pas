@@ -3,70 +3,184 @@ program LegacyCSV;
 {$mode objfpc}{$H+}
 
 uses
-  SysUtils, DateUtils, Process;
+  SysUtils, DateUtils, Process, Crt, Classes;
 
-function GetEnvDef(const name, def: string): string;
-var v: string;
-begin
-  v := GetEnvironmentVariable(name);
-  if v = '' then Exit(def) else Exit(v);
-end;
+const
+  ENV_CSV_OUT_DIR = 'CSV_OUT_DIR';
+  ENV_PGHOST = 'PGHOST';
+  ENV_PGPORT = 'PGPORT';
+  ENV_PGUSER = 'PGUSER';
+  ENV_PGPASSWORD = 'PGPASSWORD';
+  ENV_PGDATABASE = 'PGDATABASE';
+  ENV_GEN_PERIOD_SEC = 'GEN_PERIOD_SEC';
 
-function RandFloat(minV, maxV: Double): Double;
-begin
-  Result := minV + Random * (maxV - minV);
-end;
+  DEFAULT_CSV_OUT_DIR = '/data/csv';
+  DEFAULT_PGHOST = 'db';
+  DEFAULT_PGPORT = '5432';
+  DEFAULT_PGUSER = 'monouser';
+  DEFAULT_PGPASSWORD = 'monopass';
+  DEFAULT_PGDATABASE = 'monolith';
+  DEFAULT_GEN_PERIOD_SEC = 300;
 
-procedure GenerateAndCopy();
+function GetEnvironmentVariableOrDefault(const VarName, DefaultValue: string): string;
 var
-  outDir, fn, fullpath, pghost, pgport, pguser, pgpass, pgdb, copyCmd: string;
-  f: TextFile;
-  ts: string;
+  Value: string;
 begin
-  outDir := GetEnvDef('CSV_OUT_DIR', '/data/csv');
-  ts := FormatDateTime('yyyymmdd_hhnnss', Now);
-  fn := 'telemetry_' + ts + '.csv';
-  fullpath := IncludeTrailingPathDelimiter(outDir) + fn;
-
-  // write CSV
-  AssignFile(f, fullpath);
-  Rewrite(f);
-  Writeln(f, 'recorded_at,voltage,temp,source_file');
-  Writeln(f, FormatDateTime('yyyy-mm-dd hh:nn:ss', Now) + ',' +
-             FormatFloat('0.00', RandFloat(3.2, 12.6)) + ',' +
-             FormatFloat('0.00', RandFloat(-50.0, 80.0)) + ',' +
-             fn);
-  CloseFile(f);
-
-  // COPY into Postgres
-  pghost := GetEnvDef('PGHOST', 'db');
-  pgport := GetEnvDef('PGPORT', '5432');
-  pguser := GetEnvDef('PGUSER', 'monouser');
-  pgpass := GetEnvDef('PGPASSWORD', 'monopass');
-  pgdb   := GetEnvDef('PGDATABASE', 'monolith');
-
-  // Use psql with COPY FROM PROGRAM for simplicity
-  // Here we call psql reading from file
-  copyCmd := 'psql "host=' + pghost + ' port=' + pgport + ' user=' + pguser + ' dbname=' + pgdb + '" ' +
-             '-c "\copy telemetry_legacy(recorded_at, voltage, temp, source_file) FROM ''' + fullpath + ''' WITH (FORMAT csv, HEADER true)"';
-  // Mask password via env
-  SetEnvironmentVariable('PGPASSWORD', pgpass);
-  // Execute
-  fpSystem(copyCmd);
+  Value := GetEnvironmentVariable(VarName);
+  if Value = '' then
+    Result := DefaultValue
+  else
+    Result := Value;
 end;
 
-var period: Integer;
+function GenerateRandomFloat(MinValue, MaxValue: Double): Double;
+begin
+  Result := MinValue + Random * (MaxValue - MinValue);
+end;
+
+function FormatFloatValue(Value: Double): string;
+begin
+  Result := FormatFloat('0.00', Value);
+end;
+
+procedure CreateCSVFile(const FilePath: string; const FileName: string);
+var
+  CSVFile: TextFile;
+  CurrentTime: TDateTime;
+  Voltage, Temperature: Double;
+begin
+  AssignFile(CSVFile, FilePath);
+  try
+    Rewrite(CSVFile);
+
+    WriteLn(CSVFile, 'recorded_at,voltage,temp,source_file');
+
+    CurrentTime := Now;
+    Voltage := GenerateRandomFloat(3.2, 12.6);
+    Temperature := GenerateRandomFloat(-50.0, 80.0);
+
+    WriteLn(CSVFile,
+      FormatDateTime('yyyy-mm-dd hh:nn:ss', CurrentTime) + ',' +
+      FormatFloatValue(Voltage) + ',' +
+      FormatFloatValue(Temperature) + ',' +
+      FileName
+    );
+
+    WriteLn('Created CSV file: ', FilePath);
+  finally
+    CloseFile(CSVFile);
+  end;
+end;
+
+procedure ImportToPostgreSQL(const CSVFilePath: string);
+var
+  PGHost, PGPort, PGUser, PGPassword, PGDatabase, CopyCommand: string;
+  ProcessOutput: TProcess;
+begin
+  PGHost := GetEnvironmentVariableOrDefault(ENV_PGHOST, DEFAULT_PGHOST);
+  PGPort := GetEnvironmentVariableOrDefault(ENV_PGPORT, DEFAULT_PGPORT);
+  PGUser := GetEnvironmentVariableOrDefault(ENV_PGUSER, DEFAULT_PGUSER);
+  PGPassword := GetEnvironmentVariableOrDefault(ENV_PGPASSWORD, DEFAULT_PGPASSWORD);
+  PGDatabase := GetEnvironmentVariableOrDefault(ENV_PGDATABASE, DEFAULT_PGDATABASE);
+
+  CopyCommand := 'PGPASSWORD=' + PGPassword + ' psql "host=' + PGHost +
+                 ' port=' + PGPort +
+                 ' user=' + PGUser +
+                 ' dbname=' + PGDatabase + '" ' +
+                 '-c "\copy telemetry_legacy(recorded_at, voltage, temp, source_file) ' +
+                 'FROM ''' + CSVFilePath + ''' WITH (FORMAT csv, HEADER true)"';
+
+  WriteLn('Importing to PostgreSQL...');
+
+  ProcessOutput := TProcess.Create(nil);
+  try
+    ProcessOutput.Executable := 'bash';
+    ProcessOutput.Parameters.Add('-c');
+    ProcessOutput.Parameters.Add(CopyCommand);
+    ProcessOutput.Options := ProcessOutput.Options + [poWaitOnExit];
+    ProcessOutput.Execute;
+
+    if ProcessOutput.ExitCode = 0 then
+      WriteLn('Successfully imported data to PostgreSQL')
+    else
+      WriteLn('Warning: PostgreSQL import returned exit code: ', ProcessOutput.ExitCode);
+  finally
+    ProcessOutput.Free;
+  end;
+end;
+
+procedure GenerateAndImportData();
+var
+  OutputDirectory, FileName, FilePath, TimeStamp: string;
+begin
+  OutputDirectory := GetEnvironmentVariableOrDefault(ENV_CSV_OUT_DIR, DEFAULT_CSV_OUT_DIR);
+
+  if not DirectoryExists(OutputDirectory) then
+    CreateDir(OutputDirectory);
+
+  TimeStamp := FormatDateTime('yyyymmdd_hhnnss', Now);
+  FileName := 'telemetry_' + TimeStamp + '.csv';
+  FilePath := IncludeTrailingPathDelimiter(OutputDirectory) + FileName;
+
+  CreateCSVFile(FilePath, FileName);
+  ImportToPostgreSQL(FilePath);
+end;
+
+procedure RunMainLoop;
+var
+  GenerationPeriod: Integer;
+  ErrorCount: Integer;
+  MaxErrorCount: Integer;
 begin
   Randomize;
-  period := StrToIntDef(GetEnvDef('GEN_PERIOD_SEC', '300'), 300);
+  ErrorCount := 0;
+  MaxErrorCount := 10;
+
+  GenerationPeriod := StrToIntDef(
+    GetEnvironmentVariableOrDefault(ENV_GEN_PERIOD_SEC, IntToStr(DEFAULT_GEN_PERIOD_SEC)),
+    DEFAULT_GEN_PERIOD_SEC
+  );
+
+  WriteLn('Starting Legacy CSV Generator');
+  WriteLn('Generation period: ', GenerationPeriod, ' seconds');
+  WriteLn('Press Ctrl+C to stop');
+  WriteLn('');
+
   while True do
   begin
     try
-      GenerateAndCopy();
+      GenerateAndImportData();
+      ErrorCount := 0;
+      WriteLn('Waiting ', GenerationPeriod, ' seconds until next generation...');
+      WriteLn('');
     except
       on E: Exception do
-        WriteLn('Legacy error: ', E.Message);
+      begin
+        Inc(ErrorCount);
+        WriteLn(FormatDateTime('yyyy-mm-dd hh:nn:ss', Now),
+                ' - Error #', ErrorCount, ': ', E.Message);
+
+        if ErrorCount >= MaxErrorCount then
+        begin
+          WriteLn('Too many consecutive errors. Sleeping for 60 seconds...');
+          Sleep(60000);
+          ErrorCount := 0;
+        end;
+      end;
     end;
-    Sleep(period * 1000);
+
+    Sleep(GenerationPeriod * 1000);
+  end;
+end;
+
+begin
+  try
+    RunMainLoop;
+  except
+    on E: Exception do
+    begin
+      WriteLn('Fatal error in main program: ', E.Message);
+      WriteLn('Program terminated');
+    end;
   end;
 end.
