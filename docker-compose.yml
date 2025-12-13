@@ -70,6 +70,10 @@ services:
       DB_DATABASE: monolith
       DB_USERNAME: monouser
       DB_PASSWORD: monopass
+      JWST_HOST: https://api.jwstapi.com
+      JWST_API_KEY: baa96cdf-4a82-45f1-b986-d10a96826442
+      JWST_EMAIL: burnfeniks@yandex.ru
+      JWST_PROGRAM_ID: "2734"
       REDIS_URL: redis://redis:6379
     depends_on:
       db:

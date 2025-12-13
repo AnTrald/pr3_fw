@@ -1,0 +1,155 @@
+<%- include('layouts/app') -%>
+
+<div class="container py-3 fade-in">
+    <h3 class="mb-3">NASA OSDR</h3>
+    <div class="small text-muted mb-2">Источник <%= src %></div>
+
+    <div class="table-responsive slide-up">
+        <table class="table table-sm table-striped align-middle" id="osdrTable">
+            <thead>
+            <tr>
+                <th><button class="sort-btn btn btn-link p-0" data-column="0">#</button></th>
+                <th><button class="sort-btn btn btn-link p-0" data-column="1">dataset_id</button></th>
+                <th><button class="sort-btn btn btn-link p-0" data-column="2">title</button></th>
+                <th><button class="sort-btn btn btn-link p-0" data-column="3">REST_URL</button></th>
+                <th><button class="sort-btn btn btn-link p-0" data-column="4">updated_at</button></th>
+                <th><button class="sort-btn btn btn-link p-0" data-column="5">inserted_at</button></th>
+                <th><button class="btn btn-link p-0">raw</button></th>
+            </tr>
+            <tr>
+                <th><input type="text" class="form-control form-control-sm search-input" data-column="0" placeholder="Поиск..."></th>
+                <th><input type="text" class="form-control form-control-sm search-input" data-column="1" placeholder="Поиск..."></th>
+                <th><input type="text" class="form-control form-control-sm search-input" data-column="2" placeholder="Поиск..."></th>
+                <th><input type="text" class="form-control form-control-sm search-input" data-column="3" placeholder="Поиск..."></th>
+                <th><input type="text" class="form-control form-control-sm search-input" data-column="4" placeholder="Поиск..."></th>
+                <th><input type="text" class="form-control form-control-sm search-input" data-column="5" placeholder="Поиск..."></th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <% if (items.length > 0) { %>
+                <% items.forEach((row, index) => { %>
+                    <tr>
+                        <td><%= row.id %></td>
+                        <td><%= row.dataset_id || '—' %></td>
+                        <td style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+                            <%= row.title || '—' %>
+                        </td>
+                        <td>
+                            <% if (row.rest_url) { %>
+                                <a href="<%= row.rest_url %>" target="_blank" rel="noopener">открыть</a>
+                            <% } else { %>—<% } %>
+                        </td>
+                        <td><%= row.updated_at || '—' %></td>
+                        <td><%= row.inserted_at || '—' %></td>
+                        <td>
+                            <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="collapse" data-bs-target="#raw-<%= row.id %>-<%= index %>">JSON</button>
+                        </td>
+                    </tr>
+                    <tr class="collapse" id="raw-<%= row.id %>-<%= index %>">
+                        <td colspan="7">
+                            <pre class="mb-0" style="max-height:260px;overflow:auto"><%= JSON.stringify(row.raw || {}, null, 2) %></pre>
+                        </td>
+                    </tr>
+                <% }) %>
+            <% } else { %>
+                <tr><td colspan="7" class="text-center text-muted">нет данных</td></tr>
+            <% } %>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const table = document.getElementById('osdrTable');
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr:not(.collapse)'));
+        const searchInputs = table.querySelectorAll('.search-input');
+        const sortButtons = table.querySelectorAll('.sort-btn');
+
+        let currentSort = { column: null, direction: 'asc' };
+
+        function filterRows() {
+            const filters = Array.from(searchInputs).map(input => ({
+                column: parseInt(input.dataset.column),
+                value: input.value.toLowerCase().trim()
+            }));
+
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                let show = true;
+
+                filters.forEach(filter => {
+                    if (filter.value && cells[filter.column]) {
+                        const cellText = cells[filter.column].textContent.toLowerCase();
+                        if (!cellText.includes(filter.value)) {
+                            show = false;
+                        }
+                    }
+                });
+
+                row.style.display = show ? '' : 'none';
+                const collapseRow = row.nextElementSibling;
+                if (collapseRow && collapseRow.classList.contains('collapse')) {
+                    collapseRow.style.display = show ? '' : 'none';
+                }
+            });
+        }
+
+        function sortRows(column, direction) {
+            rows.sort((a, b) => {
+                const aCell = a.querySelector(`td:nth-child(${column + 1})`);
+                const bCell = b.querySelector(`td:nth-child(${column + 1})`);
+
+                let aValue = aCell ? aCell.textContent.trim() : '';
+                let bValue = bCell ? bCell.textContent.trim() : '';
+
+                if (column === 0 || column === 4 || column === 5) {
+                    aValue = new Date(aValue).getTime() || aValue;
+                    bValue = new Date(bValue).getTime() || bValue;
+                }
+
+                if (aValue < bValue) return direction === 'asc' ? -1 : 1;
+                if (aValue > bValue) return direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+
+            const fragment = document.createDocumentFragment();
+            rows.forEach(row => {
+                fragment.appendChild(row);
+                const collapseRow = row.nextElementSibling;
+                if (collapseRow && collapseRow.classList.contains('collapse')) {
+                    fragment.appendChild(collapseRow);
+                }
+            });
+
+            tbody.innerHTML = '';
+            tbody.appendChild(fragment);
+        }
+
+        searchInputs.forEach(input => {
+            input.addEventListener('input', filterRows);
+        });
+
+        sortButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const column = parseInt(this.dataset.column);
+
+                if (currentSort.column === column) {
+                    currentSort.direction = currentSort.direction === 'asc' ? 'desc' : 'asc';
+                } else {
+                    currentSort.column = column;
+                    currentSort.direction = 'asc';
+                }
+
+                sortButtons.forEach(btn => {
+                    btn.textContent = btn.textContent.replace(/ [↑↓]$/, '');
+                });
+
+                this.textContent += currentSort.direction === 'asc' ? ' ↑' : ' ↓';
+                sortRows(column, currentSort.direction);
+            });
+        });
+    });
+</script>

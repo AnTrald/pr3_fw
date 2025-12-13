@@ -10,11 +10,11 @@
                     <h5 class="card-title">Последний снимок</h5>
                     <% if (last.payload) { %>
                         <ul class="list-group">
-                            <li class="list-group-item">Широта <%= last.payload.latitude || '—' %></li>
-                            <li class="list-group-item">Долгота <%= last.payload.longitude || '—' %></li>
-                            <li class="list-group-item">Высота км <%= last.payload.altitude || '—' %></li>
-                            <li class="list-group-item">Скорость км/ч <%= last.payload.velocity || '—' %></li>
-                            <li class="list-group-item">Время <%= last.fetched_at || '—' %></li>
+                            <li class="list-group-item">Широта: <%= last.payload.latitude || '—' %></li>
+                            <li class="list-group-item">Долгота: <%= last.payload.longitude || '—' %></li>
+                            <li class="list-group-item">Высота: <%= last.payload.altitude ? last.payload.altitude + ' км' : '—' %></li>
+                            <li class="list-group-item">Скорость: <%= last.payload.velocity ? new Intl.NumberFormat('ru-RU').format(last.payload.velocity) + ' км/ч' : '—' %></li>
+                            <li class="list-group-item">Время: <%= last.fetched_at || '—' %></li>
                         </ul>
                     <% } else { %>
                         <div class="text-muted">нет данных</div>
@@ -30,10 +30,10 @@
                     <h5 class="card-title">Тренд движения</h5>
                     <% if (trend && Object.keys(trend).length > 0) { %>
                         <ul class="list-group">
-                            <li class="list-group-item">Движение <%= trend.movement ? 'да' : 'нет' %></li>
-                            <li class="list-group-item">Смещение км <%= trend.delta_km ? parseFloat(trend.delta_km).toFixed(3) : 0 %></li>
-                            <li class="list-group-item">Интервал сек <%= trend.dt_sec || 0 %></li>
-                            <li class="list-group-item">Скорость км/ч <%= trend.velocity_kmh || '—' %></li>
+                            <li class="list-group-item">Движение: <%= trend.movement ? 'да' : 'нет' %></li>
+                            <li class="list-group-item">Смещение: <%= trend.delta_km ? parseFloat(trend.delta_km).toFixed(3) + ' км' : '0 км' %></li>
+                            <li class="list-group-item">Интервал: <%= trend.dt_sec ? trend.dt_sec + ' сек' : '0 сек' %></li>
+                            <li class="list-group-item">Скорость: <%= trend.velocity_kmh ? trend.velocity_kmh + ' км/ч' : '—' %></li>
                         </ul>
                     <% } else { %>
                         <div class="text-muted">нет данных</div>
